@@ -31,15 +31,15 @@ dependencies {
     implementation 'com.google.firebase:firebase-analytics:17.2.0'
     implementation 'com.google.firebase:firebase-auth:19.1.0'
     implementation 'com.google.firebase:firebase-firestore:21.1.1'
-    implementation 'com.google.firebase:firebase-database:19.1.0'
+    implementation 'com.google.firebase:firebase-database:18.0.0'
     implementation 'com.android.support:multidex:1.0.3'
     implementation 'com.google.firebase:firebase-core:17.2.0'
-    implementation 'com.firebase:geofire-android:2.1.1'
+    implementation 'com.firebase:geofire-android:3.0.0'
     implementation 'com.google.firebase:firebase-storage:16.0.3'
 
     //noinspection GradleCompatible
 
-    implementation 'com.google.android.gms:play-services-location:16.0.0'
+    implementation 'com.google.android.gms:play-services-location:17.0.0'
     implementation 'com.github.bumptech.glide:glide:4.9.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.9.0'
     //noinspection GradleCompatible
@@ -57,6 +57,7 @@ dependencies {
     implementation 'com.squareup.retrofit2:retrofit:2.3.0'
     implementation 'com.squareup.retrofit2:converter-scalars:2.3.0'
     implementation 'uk.co.chrisjenx:calligraphy:2.3.0'
+    implementation 'com.karumi:dexter:5.0.0'
 }
 apply plugin: 'com.google.gms.google-services'
 

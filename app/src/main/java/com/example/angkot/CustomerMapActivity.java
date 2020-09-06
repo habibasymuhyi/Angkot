@@ -3,13 +3,16 @@ package com.example.angkot;
 import android.*;
 import android.Manifest;
 import android.animation.ValueAnimator;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.location.Location;
-import android.location.LocationListener;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -31,6 +34,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
 
@@ -50,6 +54,7 @@ import com.google.android.gms.common.api.Status;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
@@ -92,6 +97,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -99,12 +105,14 @@ import retrofit2.Response;
 import uk.co.chrisjenx.calligraphy.CalligraphyConfig;
 import uk.co.chrisjenx.calligraphy.CalligraphyContextWrapper;
 
-public class CustomerMapActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, com.google.android.gms.location.LocationListener {
+public class CustomerMapActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener, GeoQueryEventListener {
 
     private GoogleMap mMap;
     GoogleApiClient mGoogleApiClient;
     Location mLastLocation;
     LocationRequest mLocationRequest;
+    private LocationCallback locationCallback;
+    private FusedLocationProviderClient fusedLocationProviderClient;
 
     private Button mLogout, mRequest, mSettings, mHistory;
 
@@ -135,6 +143,10 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
     private Circle mCircle;
     private Handler handler;
     private int index, next;
+    private GeoFire geofire;
+    private List<LatLng> area;
+    private DatabaseReference myLocationRef;
+
     Runnable drawPathRunnable = new Runnable() {
         @Override
         public void run() {
@@ -163,6 +175,8 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
                 .build());
         setContentView(R.layout.activity_costumer_map);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(CustomerMapActivity.this);
+
         mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
 
@@ -170,6 +184,8 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
             ActivityCompat.requestPermissions(CustomerMapActivity.this, new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_REQUEST_CODE);
         } else {
             mapFragment.getMapAsync(this);
+            initArea();
+            settingGeofire();
         }
 
         destinationLatLng = new LatLng(0.0, 0.0);
@@ -658,12 +674,29 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
-
+        mMap.getUiSettings().setZoomControlsEnabled(true);
+        if (fusedLocationProviderClient != null);
         if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(CustomerMapActivity.this, new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_REQUEST_CODE);
+            fusedLocationProviderClient.requestLocationUpdates(mLocationRequest,locationCallback, Looper.myLooper());
         }
         buildGoogleApiClient();
+
         mMap.setMyLocationEnabled(true);
+
+        for(LatLng latLng : area)
+        {
+            CircleOptions circleOptions = new CircleOptions()
+                    .center(latLng)
+                    .radius(70.0)
+                    .strokeColor(Color.GREEN)
+                    .strokeWidth(8);
+            mCircle = mMap.addCircle(circleOptions);
+
+            GeoQuery geoQuery = geofire.queryAtLocation(new GeoLocation(latLng.latitude, latLng.longitude), 0.07f);
+            geoQuery.addGeoQueryEventListener(CustomerMapActivity.this);
+
+        }
     }
 
     protected synchronized void buildGoogleApiClient() {
@@ -674,70 +707,54 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
                 .build();
         mGoogleApiClient.connect();
     }
-
+    private void initArea() {
+        area = new ArrayList<>();
+        area.add(new LatLng(2.496578, 99.627445));
+        area.add(new LatLng(2.492771, 99.629004));
+        area.add(new LatLng(2.493671, 99.626279));
+    }
+    private void settingGeofire() {
+        myLocationRef = FirebaseDatabase.getInstance().getReference("LokasiSaya");
+        geofire = new GeoFire(myLocationRef);
+    }
     @Override
-    public void onLocationChanged(Location location) {
+    public void onLocationChanged(final Location location) {
         if (getApplicationContext() != null) {
             mLastLocation = location;
 
-            LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+            geofire.setLocation("Anda", new GeoLocation(location.getLatitude(),
+                            location.getLongitude()), new GeoFire.CompletionListener() {
+                        @Override
+                        public void onComplete(String key, DatabaseError error) {
+                            LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
 
-            mMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
-            mMap.animateCamera(CameraUpdateFactory.zoomTo(15.0f));
+                            //gerak kamera
+                            mMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
+                            mMap.animateCamera(CameraUpdateFactory.zoomTo(15.0f));
+                        }
+                    });
 
+            float[] distance = new float[2];
+
+            Location.distanceBetween(location.getLatitude(), location.getLongitude(),
+                    mCircle.getCenter().latitude, mCircle.getCenter().longitude, distance);
+
+            if (distance[0] > mCircle.getRadius()) {
+                Toast.makeText(getBaseContext(), "Anda Di Luar Jangkauan Halte Tombol Utama Tidak Berfungsi!",  Toast.LENGTH_SHORT).show();
+                mRequest.setEnabled(false);
+            }
             if (!getDriversAroundStarted)
                 getDriversAround();
         }	//test outside
-        double mLatitude = 3.617397;
-        double mLongitude = 98.721319;
-        //test inside
-        double mLatitude1 = 3.619713;
-        double mLongitude1 = 98.725315;
 
-        double mLatitude2 =  3.394972;
-        double mLongitude2 = 98.380514;
-
-        //googleMap = ((SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map)).getMap();
-
-        LatLng latLng = new LatLng(mLatitude, mLongitude);
-
-        drawMarkerWithCircle(latLng);
-
-        LatLng latLng1 = new LatLng(mLatitude1, mLongitude1);
-        drawMarkerWithCircle(latLng1);
-
-        LatLng latLng2 = new LatLng(mLatitude2, mLongitude2);
-        drawMarkerWithCircle(latLng2);
-
-        float[] distance = new float[2];
-
-        Location.distanceBetween(location.getLatitude(), location.getLongitude(),
-                mCircle.getCenter().latitude, mCircle.getCenter().longitude, distance);
-
-        if (distance[1] > mCircle.getRadius()) {
-            Toast.makeText(getBaseContext(), "Anda Di Luar Jangkauan Halte Tombol Utama Tidak Berfungsi!",  Toast.LENGTH_SHORT).show();
-            mRequest.setEnabled(false);
-        } else {
-            Toast.makeText(getBaseContext(), "Anda Di Dalam Jangkauan Halte!", Toast.LENGTH_SHORT).show();
-            mRequest.setEnabled(true);
-        }
-
-    }
-    private void drawMarkerWithCircle(LatLng position){
-        double radiusInMeters = 70.0;
-
-        CircleOptions circleOptions = new CircleOptions().center(position).radius(radiusInMeters).strokeColor(Color.GREEN).strokeWidth(8);
-        mCircle = mMap.addCircle(circleOptions);
-
-        MarkerOptions markerOptions = new MarkerOptions().position(position).title("Halte");
-        mHalteMarker = mMap.addMarker(markerOptions);
     }
 
     @Override
     public void onConnected(@Nullable Bundle bundle) {
         mLocationRequest = new LocationRequest();
-        mLocationRequest.setInterval(1000);
-        mLocationRequest.setFastestInterval(1000);
+        mLocationRequest.setInterval(5000);
+        mLocationRequest.setFastestInterval(3000);
+        mLocationRequest.setSmallestDisplacement(10f);
         mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 
         if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -783,9 +800,6 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
             }
         }
     }
-
-
-
 
     boolean getDriversAroundStarted = false;
     List<Marker> markers = new ArrayList<Marker>();
@@ -846,5 +860,61 @@ public class CustomerMapActivity extends FragmentActivity implements OnMapReadyC
 
             }
         });
+    }
+
+    @Override
+    public void onKeyEntered(String key, GeoLocation location) {
+        sendNotification("ANGKOT",String.format("Anda Di Dalam Jangkauan Halte!",key));
+        mRequest.setEnabled(true);
+    }
+
+    @Override
+    public void onKeyExited(String key) {
+
+    }
+
+    @Override
+    public void onKeyMoved(String key, GeoLocation location) {
+        sendNotification("ANGKOT",String.format("Anda Bergerak Di Dalam Jangkauan Halte!",key));
+        mRequest.setEnabled(true);
+    }
+
+    @Override
+    public void onGeoQueryReady() {
+
+    }
+
+    @Override
+    public void onGeoQueryError(DatabaseError error) {
+        Toast.makeText(this, ""+error.getMessage(), Toast.LENGTH_SHORT).show();
+    }
+
+    private void sendNotification(String title, String content) {
+        Toast.makeText(this, ""+content, Toast.LENGTH_SHORT).show();
+
+        String NOTIFICATON_CHANNEL_ID = "angkot_multi_location";
+        NotificationManager notificationManager = (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+        {
+            NotificationChannel notificationChannel = new NotificationChannel(NOTIFICATON_CHANNEL_ID,"Notifikasi Saya",
+                    NotificationManager.IMPORTANCE_DEFAULT);
+
+            notificationChannel.setDescription("notifikasi channel");
+            notificationChannel.enableLights(true);
+            notificationChannel.setLightColor(Color.RED);
+            notificationChannel.setVibrationPattern(new long[]{0,1000,500,1000});
+            notificationChannel.enableVibration(true);
+            notificationManager.createNotificationChannel(notificationChannel);
+        }
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this,NOTIFICATON_CHANNEL_ID);
+        builder.setContentTitle(title)
+                .setContentText(content)
+                .setAutoCancel(false)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setLargeIcon(BitmapFactory.decodeResource(getResources(),R.mipmap.ic_launcher));
+
+        Notification notification = builder.build();
+        notificationManager.notify(new Random().nextInt(),notification);
     }
 }
